@@ -202,7 +202,7 @@ void test_ej1a(void) {
 void test_ej1b(void) {
 	uint64_t failed_at_start = failed_tests;
 	if (!EJERCICIO_1B_HECHO) {
-		printf(SKIP "El ejercicio 1A no está hecho aún.\n");
+		printf(SKIP "El ejercicio 1B no está hecho aún.\n");
 		return;
 	}
 
