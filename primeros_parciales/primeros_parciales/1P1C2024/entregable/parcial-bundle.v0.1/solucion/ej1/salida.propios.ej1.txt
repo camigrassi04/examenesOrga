@@ -1,0 +1,17 @@
+
+== Ejercicio 1a ==
+
+Lista 0: 2 NOT NULL
+Lista 1: 4 NOT NULL
+Lista 2: 6 NOT NULL
+Lista 3: 0 NULL
+Lista 4: 1 NOT NULL
+
+== Ejercicio 1b ==
+
+Nodo 1: 255
+Nodo 2: 255
+Nodo 3: 255
+
+== Ejercicio 1c ==
+

@@ -211,7 +211,8 @@ modificarUnidad:
 	imul r9, 8 ; 8*(255*x + y)
 	add r12, r9
 
-	cmp [r12], 0
+	mov rbx, [r12]
+	cmp rbx, 0
 	je .fin ; mapa[x][y] == null?
 
 	mov r8, [rbx + ATTACKUNIT_REFERENCES] ; mapa[x][y]->references
@@ -225,7 +226,7 @@ modificarUnidad:
 	call malloc ; rax = puntero a nueva_unidad
 	add rsp, 8
 
-	mov [rax], [r12] ; *nueva_unidad = *unidad;
+	mov [rax], rbx ; *nueva_unidad = *unidad;
 	mov [rax + ATTACKUNIT_REFERENCES], BYTE 1 ; nueva_unidad->references = 1
 	mov [r12], rax ; mapa[x][y] = nueva_unidad
 
