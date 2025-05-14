@@ -8,18 +8,18 @@
 #define USE_ASM_IMPL 1
 
 /** Lista **/
-typedef struct string_proc_list_t {
-	struct string_proc_node_t* first;
-	struct string_proc_node_t* last;
-} string_proc_list;
+typedef struct string_proc_list_t { 
+	struct string_proc_node_t* first; // first_offset = 0
+	struct string_proc_node_t* last; // last_offset = 8
+} string_proc_list; // string_proc_list_size_offset = 16
 
 /** Nodo **/
 typedef struct string_proc_node_t {
-	struct string_proc_node_t* next;
-	struct string_proc_node_t* previous;
-	uint8_t type;
-	char* hash;
-} string_proc_node;
+	struct string_proc_node_t* next; // next_offset = 0
+	struct string_proc_node_t* previous; // previous_offset = 8
+	uint8_t type; // type_offset = 16
+	char* hash; // hash_offset = 24
+} string_proc_node; // string_proc_node_size_offset = 32
        
 /** Funciones a implementar:  **/
 string_proc_list* string_proc_list_create(void);

@@ -1,12 +1,36 @@
 #include "ej1.h"
 
 string_proc_list* string_proc_list_create(void){
+	// inicializo una lista doble enlazada con first y last en null
+	string_proc_list* lista = malloc(sizeof(string_proc_list));
+	lista->first = NULL;
+	lista->last = NULL;
+	return lista;
 }
 
 string_proc_node* string_proc_node_create(uint8_t type, char* hash){
+	// creo el nodo
+	string_proc_node* nodo = malloc(sizeof(string_proc_node));
+	// cuando hago malloc me está reservando espacio para toda la estructura, por lo que puedo establecer los valores sin necesidad de pedir espacio*
+	nodo->type = type; // duda: hace falta pedir espacio para este byte antes de escribirlo?
+	nodo->hash = hash; // importante: nos pidieron que no sea una copia. entonces solo asigno la referencia que me pasaron
+	nodo->next = NULL;
+	nodo->previous = NULL;
+	return nodo;
 }
 
+// * pero si, por ejemplo, una de los valores que pongo es un puntero, ahí sí tengo que hacer espacio para guardar la cosa a la que apunta ese puntero
 void string_proc_list_add_node(string_proc_list* list, uint8_t type, char* hash){
+	// creo nodo
+	string_proc_node* nodo = string_proc_node_create(type, hash);
+	if (list->first == NULL){ // el nodo que agregamos es el primero
+		list->first = nodo;
+		list->last = nodo;
+	} else {
+        nodo->previous = list->last;
+        list->last->next = nodo;
+        list->last = nodo;
+	}
 }
 
 char* string_proc_list_concat(string_proc_list* list, uint8_t type , char* hash){

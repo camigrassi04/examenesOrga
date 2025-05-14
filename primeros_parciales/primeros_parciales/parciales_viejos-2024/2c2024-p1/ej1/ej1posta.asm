@@ -21,7 +21,7 @@ EJERCICIO_1A_HECHO: db TRUE ; Cambiar por `TRUE` para correr los tests.
 ; Funciones a implementar:
 ;   - indice_a_inventario
 global EJERCICIO_1B_HECHO
-EJERCICIO_1B_HECHO: db FALSE ; Cambiar por `TRUE` para correr los tests.
+EJERCICIO_1B_HECHO: db TRUE ; Cambiar por `TRUE` para correr los tests.
 
 ;########### ESTOS SON LOS OFFSETS Y TAMAÑO DE LOS STRUCTS
 ; Completar las definiciones (serán revisadas por ABI enforcer):
@@ -54,13 +54,8 @@ ITEM_SIZE EQU 28
 ;;   de verificar que el orden sea estable.
 
 global es_indice_ordenado
-; rdi ---> item_t** inventario
-; rsi ---> uint16_t* indice
-; dx  ---> uint16_t tamanio
-; rcx ---> comparador_t comparador
-
 es_indice_ordenado:
-	; prologo
+	;prólogo
 	push rbp
 	mov rbp, rsp
 	push r12
@@ -68,50 +63,50 @@ es_indice_ordenado:
 	push r14
 	push r15
 	push rbx
+	;preservamos los registros
 
-	sub rsp, 8
+	mov r12, rdi ;r12 = puntero a inventario
+	mov r13, rsi ;r13 = puntero a indice
+	mov r14, rcx ;r14 = comparador
 
-; tienen que sobrevivir la llamada a funcion
-	mov r12, rdi ; inventario
-	mov r13, rsi ; indice
-	movzx r14, dx ; tamanio
-	mov r15, rcx ; comparador
+	movzx r15, dx ;extendemos tamanio a 64 bits (zero extend)
 
-	mov rbx, 0 ; -uint16_t- int i = 0
-	sub r14, 1 ; tamanio = tamanio - 1
+	mov rbx, 1
+
 .loop:
-	cmp rbx, r14  ; i < tamanio - 1 ??
-	je .true
+	cmp rbx, r15
+	je .true ;i = tamanio?
 
-	mov r9, rbx ; bx 
-	shl r9, 1 ; bx * 2
-	movzx r8, word [r13 + r9] ; r8 = indice[i]
-	mov rdi, [r12 + r8 * 8] ; actual = inventario[indice[i]]es
+	;preparamos los registros rdi y rsi para llamar al comparador
+	mov r8, rbx ; r8 = i
+	dec r8 ; r8 = i-1
+	shl r8, 1 ; r8 = (i-1) * 2bytes (tamaño de datos de indice)
+	movzx r9, word [r13 + r8] ;valor de indice[i-1] (tenemos que desreferenciarlo porque si no nos estariamos refiriendo al puntero)
+	mov rdi, [r12 + r9 * 8] ;puntero a inventario[indice[i-1]]
+
+	mov r8, rbx
+	shl r8, 1 ; r8 = i * 2
+	movzx r9, word [r13 + r8]
+	mov rsi, [r12 + r9 * 8]
+
+	sub rsp, 8          ;alineamos stack a 16 bytes
+	call r14
+	add rsp, 8
+
+	cmp rax, 0
+	je .false
 
 	inc rbx ; i++
-	mov r9, rbx ; bx
-	shl r9, 1 ; bx * 2
-	movzx r8, word [r13 + r9] ; r8 = indice[i+1]
-	mov rsi, [r12 + r8 * 8] ; sig = inventario[indice[i+1]]
-
-	call r15 ; comparador(actual, sig), rax = 0 o 1
-	;xor rax, 1 ; !comparador(actul, sig)
-
-	cmp rax, 0 ; !comparador(actual, sig) == true?
-	je .falso ; si es así, salto a falso
-
-	; llego al siguiente ciclo con i = i+1 así que no vuelvo a incrementar
 	jmp .loop
 
-.falso:
-	mov rax, 0
+.false:
+	xor rax, rax        ; return false
 	jmp .fin
 
 .true:
-	mov rax, 1
+	mov rax, 1          ; return true
+
 .fin:
-	;epilogo
-	add rsp, 8
 	pop rbx
 	pop r15
 	pop r14
@@ -119,7 +114,6 @@ es_indice_ordenado:
 	pop r12
 	pop rbp
 	ret
-
 
 ;; Dado un inventario y una vista, crear un nuevo inventario que mantenga el
 ;; orden descrito por la misma.
@@ -150,4 +144,48 @@ indice_a_inventario:
 	; rdi = item_t**  inventario
 	; rsi = uint16_t* indice
 	; dx = uint16_t  tamanio
+
+	;prólogo
+	push rbp
+	mov rbp, rsp
+	push r12
+	push r13
+	push r14
+	push r15
+	push rbx
+
+	mov r12, rdi ;inventario
+	mov r13, rsi ;indice
+	movzx r14, dx ;tamanio
+
+	mov rdi, r14
+	shl rdi, 3
+
+	sub rsp, 8
+	call malloc ;rax = puntero a resultado
+	add rsp, 8
+
+	mov r8, rax
+
+	xor r15, r15
+.loop:
+	cmp r15, r14
+	je .fin
+
+	movzx r9, word [r13]
+	mov r9, [r12 + r9*8]
+
+	mov [r8 + r15*8], r9
+
+	add r13, 2 ;movemos el puntero al siguiente dato de indice
+	inc r15
+	jmp .loop
+	
+.fin:
+	pop rbx
+	pop r15
+	pop r14
+	pop r13
+	pop r12
+	pop rbp
 	ret

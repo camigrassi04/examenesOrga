@@ -18,11 +18,15 @@
 #define USE_ASM_IMPL 1
 
 typedef struct {
-  uint8_t colum_largo;
-  char *nombre;
-  uint8_t colum_corto;
-} templo;
+  uint8_t colum_largo; // offset colum_largo = 0
+  char *nombre; // offset nombre = 8
+  uint8_t colum_corto; // offset colum_corto = 16
+} templo; // offset templo_size = 24
 
+/*
+char *nombre almacena un puntero que puede apuntar a cualquier string en memoria
+char nombre[10] almacena directamente un array de 10 caracteres dentro de la estructura
+*/
 
 //*******************************
 //Declaración de funciones de ej1
