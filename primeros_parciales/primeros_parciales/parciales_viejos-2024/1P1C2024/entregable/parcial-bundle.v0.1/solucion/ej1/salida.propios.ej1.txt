@@ -9,9 +9,13 @@ Lista 4: 1 NOT NULL
 
 == Ejercicio 1b ==
 
-Nodo 1: 255
-Nodo 2: 255
-Nodo 3: 255
+Nodo 1: 0
+Nodo 2: 4
+Nodo 3: 0
 
 == Ejercicio 1c ==
 
+OT position 0: 0
+OT position 0: 0
+OT position 1: 1
+OT position 4: 4
