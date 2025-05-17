@@ -34,6 +34,35 @@ void string_proc_list_add_node(string_proc_list* list, uint8_t type, char* hash)
 }
 
 char* string_proc_list_concat(string_proc_list* list, uint8_t type , char* hash){
+	if (list == NULL){
+		char* copia_original = malloc(strlen(hash)+1); // el +1 es por el /0 final
+		if (copia_original != NULL){
+			strcpy(copia_original, hash); // importante esto: strcpy copia la cadena tal cual
+		}
+		return copia_original;
+	} else {
+		// primero calculamos la longitud total del hash para pedir memoria
+		uint8_t total_hashes = strlen(hash);
+		string_proc_node* node = list->first;
+		while (node != NULL){
+			if (node->type == type){
+				total_hashes += strlen(node->hash);
+			}
+			node = node->next;
+		}
+		char* nuevo_hash = malloc(total_hashes +1);
+		nuevo_hash[0] = '\0';
+		strcat(nuevo_hash, hash);
+		// arranco a iterar para agregar los hashes
+		node = list->first; 
+		while (node != NULL){
+			if (node->type == type){
+				strcat(nuevo_hash, node->hash);
+			}
+			node = node->next;
+		}
+		return nuevo_hash;
+	}
 }
 
 
