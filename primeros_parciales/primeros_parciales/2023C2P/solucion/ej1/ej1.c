@@ -39,7 +39,7 @@ uint8_t contar_pagos_aprobados(list_t* pList, char* usuario){
     if (pList != NULL){
         listElem_t* nodo = pList->first;
         while (nodo != NULL){
-            if (strcmp(nodo->data->pagador, usuario) == 0 && nodo->data->aprobado == 1){
+            if (strcmp(nodo->data->cobrador, usuario) == 0 && nodo->data->aprobado == 1){
                 res++;
             }
             nodo = nodo->next;
@@ -53,7 +53,7 @@ uint8_t contar_pagos_rechazados(list_t* pList, char* usuario){
     if (pList != NULL){
         listElem_t* nodo = pList->first;
         while (nodo != NULL){
-            if (strcmp(nodo->data->pagador, usuario) == 0 && nodo->data->aprobado == 0){
+            if (strcmp(nodo->data->cobrador, usuario) == 0 && nodo->data->aprobado == 0){
                 res++;
             }
             nodo = nodo->next;
@@ -63,5 +63,29 @@ uint8_t contar_pagos_rechazados(list_t* pList, char* usuario){
 }
 
 pagoSplitted_t* split_pagos_usuario(list_t* pList, char* usuario){
+    pagoSplitted_t* res = malloc(sizeof(pagoSplitted_t));
+    res->cant_aprobados = contar_pagos_aprobados(pList, usuario);
+    res->cant_rechazados = contar_pagos_rechazados(pList, usuario);
+    res->aprobados = malloc((res->cant_aprobados)*8); 
+    res->rechazados = malloc((res->cant_rechazados)*8); 
 
+    if (pList != NULL){
+        listElem_t* nodo = pList->first;
+        uint8_t ultimo_aprobado = 0;
+        uint8_t ultimo_rechazado = 0;
+        while (nodo != NULL){
+            if (strcmp(nodo->data->cobrador, usuario) == 0){
+                if (nodo->data->aprobado == 1){
+                    res->aprobados[ultimo_aprobado] = nodo;
+                    ultimo_aprobado++;
+                }
+                if (nodo->data->aprobado == 0){
+                    res->rechazados[ultimo_rechazado] = nodo;
+                    ultimo_rechazado++;
+                }
+            }
+            nodo = nodo->next;
+        }
+    }
+    return res;
 }
