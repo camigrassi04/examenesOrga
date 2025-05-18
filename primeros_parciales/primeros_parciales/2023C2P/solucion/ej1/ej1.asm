@@ -158,67 +158,67 @@ split_pagos_usuario_asm:
 
     mov rdi, PAGO_SPLITTED_T_SIZE
     call malloc ; rax = res
-    mov rbx, rax ; rbx = res
+    mov rbx, rax 
 
     mov rdi, r12
     mov rsi, r13
-    call contar_pagos_aprobados_asm
-    mov byte [rbx + PAGO_SPLITTED_T_CANT_APROBADOS], al
-
+    call contar_pagos_aprobados_asm ; al = cant_aprobados
+    mov byte [rbx + PAGO_SPLITTED_T_CANT_APROBADOS], al ; res->cant_aprobados = contar_pagos_aprobados(pList, usuario)
     mov rdi, r12
     mov rsi, r13
     call contar_pagos_rechazados_asm
     mov byte [rbx + PAGO_SPLITTED_T_CANT_RECHAZADOS], al
 
-    mov rdi, [rbx + PAGO_SPLITTED_T_CANT_APROBADOS]
+    movzx rdi, byte [rbx + PAGO_SPLITTED_T_CANT_APROBADOS]
     shl rdi, 3
-    call malloc
+    call malloc ; rax = res->aprobados = malloc((res->cant_aprobados)*8)
     mov [rbx + PAGO_SPLITTED_T_APROBADOS], rax
 
-
-    mov rdi, [rbx + PAGO_SPLITTED_T_CANT_RECHAZADOS]
+    movzx rdi, byte [rbx + PAGO_SPLITTED_T_CANT_RECHAZADOS]
     shl rdi, 3
-    call malloc
+    call malloc ; rax = res->rechazados = malloc((res->cant_rechazados)*8)
     mov [rbx + PAGO_SPLITTED_T_RECHAZADOS], rax
 
-    cmp qword r13, 0
+    cmp r12, 0 ; pList == NULL ?
     je .fin
 
-    mov r14, [r13 + LIST_T_FIRST] ; r14 = nodo
-    xor r15, r15 ; r15 = ultimo_aprobado
-    xor r12, r12 ; r12 = ultimo_rechazado
+    mov r12, [r12 + LIST_T_FIRST] ; listElem_t* nodo = pList->first
+    xor r14, r14 ; ultimo_aprobado = 0
+    xor r15, r15 ; ultimo_rechazado = 0
 
-    .while:
-    cmp qword r14, 0
+    .loop:
+    cmp r12, 0
     je .fin
 
-    mov rdi, [r14 + LISTELEM_T_DATA]
-    mov rdi, [rdi + PAGO_T_COBRADOR]
+    mov rdi, [r12 + LISTELEM_T_DATA] ; rdi = nodo->data
+    mov rdi, [rdi + PAGO_T_COBRADOR] ; rdi = nodo->data->cobrador
     mov rsi, r13
-    call strcmp
-    cmp rax, 0
+    call strcmp ; rax = strcmp(nodo->data->cobrador, usuario)
+    cmp qword rax, 0
     jne .avanzar
 
-    mov r8, [r14 + LISTELEM_T_DATA]
+    mov qword r8, [r12 + LISTELEM_T_DATA]
     movzx r8, byte [r8 + PAGO_T_APROBADO]
     cmp r8, 1
-    jne .ver_si_rechazado
+    je .agregar_aprobado
 
-    mov r9, r15
+    mov r9, r15 ; r9 = ultimo_rechazado 
     shl r9, 3
-    mov [rbx + PAGO_SPLITTED_T_APROBADOS + r9], r14 ; res->aprobados[ultimo_aprobado] = nodo
-    
-    mov r9, [bx + PAGO_SPLITTED_T_APROBADOS] ; res->aprobados
-    mov r10, r15
-    shl r15, 3
-    add r9, r15
-    mov [r9], r14
+    mov r8, [rbx + PAGO_SPLITTED_T_RECHAZADOS]
+    mov [r8 + r9], r12 ; res->aprobados[ultimo_rechazado] = nodo
+    inc r15
+    jmp .avanzar
 
+    .agregar_aprobado:
+    mov r9, r14 ; r9 = ultimo_aprobado 
+    shl r9, 3
+    mov r8, [rbx + PAGO_SPLITTED_T_APROBADOS]
+    mov [r8 + r9], r12 ; res->aprobados[ultimo_aprobado] = nodo
+    inc r14
 
-    .ver_si_rechazado:  
     .avanzar:
-    mov r14, [r14 + LISTELEM_T_NEXT]
-    jmp .while
+    mov r12, [r12 + LISTELEM_T_NEXT] ; nodo = nodo->next
+    jmp .loop
 
     .fin:
     mov rax, rbx 

@@ -4,6 +4,7 @@ Hechos:
 - 2023C1P
 - 1P1C2024
 - 2023C2R
+- 2023C2P
 
 Maso:
 - 2c2024-r1 (falta que pase el C)
