@@ -40,3 +40,5 @@ Cliente 7: 1
 Cliente 8: 10
 Cliente 9: 2
 Cliente 10: 6
+== Ejercicio 1b ==
+
