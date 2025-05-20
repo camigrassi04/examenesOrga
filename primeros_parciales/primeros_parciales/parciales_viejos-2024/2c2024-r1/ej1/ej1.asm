@@ -179,8 +179,8 @@ contarCombustibleAsignado:
 global modificarUnidad
 modificarUnidad:
 	; rdi = mapa_t           mapa
-	; sil  = uint8_t          x
-	; dil  = uint8_t          y
+	; sil  = uint8_t         x
+	; dl  = uint8_t          y
 	; rcx = void*            fun_modificar(attackunit_t*)
 
 	; prologo
@@ -192,52 +192,48 @@ modificarUnidad:
 	push r14
 	push r15
 	push rbx
+	sub rsp, 8
 
-	mov r12, rdi ; mapa
-	movzx r13, sil ; x
-	movzx r14, dil ; y
-	mov r15, rcx ; fun_modificar
+	mov r12, rdi ; r12 = mapa es un array de arrays de punteros a attackunits
+	movzx r13, sil ; r13 = x
+	movzx r14, dl ; r14 = y
+	mov r15, rcx ; r15 = fun_modificar
 
-	;mov r8, [r12]
-	;cmp r8, 0
-	;je .fin
-	
-	mov r8, r13 ; copio r13 en un registro auxiliar
-	imul r8, COLUMNAS ; x * COLUMNAS
+	mov r8, r13 ; r8 = x
+	imul r8, 255 ; multiplico el x por la # columnas
+	add r8, r14 ; 255x + y
+	shl r8, 3 ; 8*(255x + y) (multiplico por el tamaño del dato de la celda)
 
-	mov r9, r14 ; r9 = y
-	add r9, r8
+	add r8, r12
+	mov rbx, r8 ; &mapa[x][y]
 
-	imul r9, 8 ; 8*(255*x + y)
-	add r12, r9
-
-	mov rbx, [r12]
 	cmp rbx, 0
-	je .fin ; mapa[x][y] == null?
+	je .fin
 
-	mov r8, [rbx + ATTACKUNIT_REFERENCES] ; mapa[x][y]->references
-	cmp r8, 1
-	je .funcion
+	mov r9, [rbx]
+	movzx r8, byte [r9 + ATTACKUNIT_REFERENCES]
+	cmp r8, 1 ; unidad->references == 1 ?
+	jle .fin
 
-	dec r8
+	dec byte [r9 + ATTACKUNIT_REFERENCES] ; unidad->references--
+	
 	mov rdi, ATTACKUNIT_SIZE
+	call malloc ; rax = nueva_unidad
 
-	sub rsp, 8
-	call malloc ; rax = puntero a nueva_unidad
-	add rsp, 8
-
-	mov [rax], rbx ; *nueva_unidad = *unidad;
-	mov [rax + ATTACKUNIT_REFERENCES], BYTE 1 ; nueva_unidad->references = 1
-	mov [r12], rax ; mapa[x][y] = nueva_unidad
-
-.funcion:
-	mov rdi, rbx
-	sub rsp, 8
-	call r15
-	add rsp, 8
+	mov r9, [rbx] ; mapa[x][y]
+	mov r8, [r9] ; r8 = primeros 8 bytes de attackunit
+	mov r10, [r9 + 8] ; r10 = segundos 8 bytes de attackunit 
+	mov [rax], r8 ; *nueva_unidad = *unidad
+	mov [rax + 8], r10
+	mov byte [rax + ATTACKUNIT_REFERENCES], 1 ; nueva_unidad->references = 1
+	mov [rbx], rax ; mapa[x][y] = nueva_unidad
 
 .fin:
+	mov rdi, [rbx]
+	call r15 
+
 	; epilogo
+	add rsp, 8
 	pop rbx
 	pop r15
 	pop r14
