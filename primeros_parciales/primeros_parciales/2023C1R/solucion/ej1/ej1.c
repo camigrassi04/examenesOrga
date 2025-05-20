@@ -33,7 +33,7 @@ pago_t** blacklistComercios(uint8_t cantidad_pagos, pago_t* arr_pagos, char** ar
         }
     }
     // ahora armo el array de punteros a los pagos y agrego los pagos
-    pago_t** pagos_res = malloc(cant_pagos_res*24);
+    pago_t** pagos_res = malloc(cant_pagos_res*8);
     uint8_t ultimo_agregado = 0;
     for (int i = 0; i < cantidad_pagos; i++){
         pago_t pago = arr_pagos[i];

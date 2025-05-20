@@ -69,56 +69,164 @@ en_blacklist_asm:
 ; rdi = comercio
 ; rsi = lista_comercios
 ; dl = n
-	; push rbp
-	; mov rbp, rsp
-	; push r12
-	; push r13
-	; push r14
-	; push r15
-	; push rbx
-	; sub rsp, 8
+	push rbp
+	mov rbp, rsp
+	push r12
+	push r13
+	push r14
+	push r15
+	push rbx
+	sub rsp, 8
 
-	; mov r12, rdi ; r12 = comercio
-	; mov r13, rsi ; r13 = lista_comercios
-	; movzx r14, dl ; r14 = n
+	mov r12, rdi ; r12 = comercio
+	mov r13, rsi ; r13 = lista_comercios
+	movzx r14, dl ; r14 = n
 
-	; xor r15, r15 ; i = 0
+	xor r15, r15 ; i = 0
 
-	; .for:
-	; cmp r15, r14
-	; je .no_esta_en_blacklist
+	.for:
+	cmp r15, r14
+	je .no_esta_en_blacklist
 
-	; mov r9, r15 ; r9 = i
-	; imul r9, 8 ; i * 8
-	; add r9, r13 ; &lista_comercios[i]
-	; mov rdi, [r9] ; rdi = lista_comercios[i]
+	mov r9, r15 ; r9 = i
+	imul r9, 8 ; i * 8
+	add r9, r13 ; &lista_comercios[i]
+	mov rdi, [r9] ; rdi = lista_comercios[i]
 
-	; mov rsi, r12 ; rsi = comercio
-	; call strcmp
-	; cmp rax, 0
-	; jne .avanzar
+	mov rsi, r12 ; rsi = comercio
+	call strcmp
+	cmp rax, 0
+	jne .avanzar
 
-	; jmp .esta_en_blacklist
+	jmp .esta_en_blacklist
 
-	; .esta_en_blacklist:
-	; mov rax, 1
-	; jmp .fin
+	.esta_en_blacklist:
+	mov rax, 1
+	jmp .fin
 
-	; .avanzar:
-	; inc r15
-	; jmp .for
+	.avanzar:
+	inc r15
+	jmp .for
 
-	; .no_esta_en_blacklist:
-	; xor rax, rax
-	; .fin:
-	; add rsp, 8
-	; pop rbx
-	; pop r15
-	; pop r14
-	; pop r13
-	; pop r12
-	; pop rbp
+	.no_esta_en_blacklist:
+	xor rax, rax
+	.fin:
+	add rsp, 8
+	pop rbx
+	pop r15
+	pop r14
+	pop r13
+	pop r12
+	pop rbp
 	ret
 
 blacklistComercios_asm:
+; dil = cantidad_pagos
+; rsi = arr_pagos
+; rdx = arr_comercios
+; cl = size_comercios
+	push rbp
+	mov rbp, rsp
+	push r12
+	push r13
+	push r14
+	push r15
+	push rbx
+	sub rsp, 8
+
+	movzx r12, dil ; r12 = cantidad_pagos
+	mov r13, rsi ; r13 = arr_pagos
+	mov r14, rdx ; r14 = arr_comercios
+	movzx r15, cl ; r15 = size_comercios
+
+	; primera parte: contar #comercios en blacklist
+
+	xor rbx, rbx ; rbx = cant_pagos_res
+	xor r9, r9 ; i = 0
+	push r9 ; i = 0
+	.for:
+	pop r9
+	cmp r9, r12 ; i == cantidad_pagos ?
+	je .armar_array_pagos
+
+	push r9 ; preservo el i
+	mov r8, rbx ; r8 = i
+	imul r8, 24 ; i * 24
+	add r8, r13 ; &arr_pagos[i]
+	mov r8, [r8 + 8] ; arr_pagos[i].comercio
+
+	mov rdi, r8 ; rdi = comercio
+	mov rsi, r14 ; rsi = arr_comercios
+	mov dl, r15b ; dl = size_comercios
+	call en_blacklist_asm
+	pop r9
+
+	cmp al, 0
+	je .incrementar_i
+
+	inc rbx ; cant_pagos_res++
+
+	.incrementar_i:
+	inc r9
+	push r9
+	jmp .for
+
+	.armar_array_pagos:
+	; segunda parte: armar el array que devolveremos
+	
+	mov rdi, rbx ; rdi = cant_pagos_res
+	imul rdi, 8
+	call malloc ; rax = pagos_res
+	mov rbx, rax
+	
+	xor r9, r9 ; r9 = ultimo_agregado
+	push r9 ; preservo ultimo agregado en la pila 
+
+	xor r8, r8 ; r8 = i
+	push r8	
+	
+	.for2:
+	pop r8
+	cmp r8, r12 ; i == cantidad_pagos ?
+	je .fin
+
+	mov r10, r8 ; r10 = i
+	imul r10, 24 ; i * 24
+	add r10, r13 ; &arr_pagos[i]
+	mov rdi, [r10 + 8] ; arr_pagos[i].comercio
+
+	mov rsi, r14
+	mov dl, r15b
+	push r8 ; preservo i antes de llamar a función
+	call en_blacklist_asm
+	pop r8
+	cmp al, 0
+	je .avanzar_i
+
+	mov r10, r8
+	imul r10, 24
+	add r10, r13 ; &arr_pagos[i]
+
+	pop r9 ; ultimo_agregado
+	mov r11, r9
+	shl r11, 3 ; ultimo_agregado * 8
+	mov [rbx + r11], r10 ; pagos_res[ultimo_agregado] = &arr_pagos[i]
+
+	inc r9 ; ultimo_agregado++
+	push r9
+
+	.avanzar_i:
+	inc r8
+	push r8
+	jmp .for2
+	
+	.fin:
+	mov rax, rbx
+	add rsp, 8
+	pop rbx
+	pop r15
+	pop r14
+	pop r13
+	pop r12
+	pop rbp
 	ret
