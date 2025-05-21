@@ -7,8 +7,17 @@
  * - El `sum` más grande de la lista vacía (`NULL`) es 0.
  */
 uint32_t proyecto_mas_dificil(lista_t* lista) {
-	/* COMPLETAR */
-	return 0; // BORRAR
+	if (lista == NULL){
+		return 0;
+	}
+	uint32_t puntos = 0;
+	while (lista != NULL){
+		if (lista->sum > puntos){
+			puntos = lista->sum;
+		}
+		lista = lista->next;
+	}
+	return puntos;
 }
 
 /**
@@ -20,18 +29,20 @@ uint32_t proyecto_mas_dificil(lista_t* lista) {
  * - Se debe actualizar el `sum` del nodo actualizado de la lista
  */
 void marcar_tarea_completada(lista_t* lista, size_t index) {
-	/* AYUDA: */
-	size_t curr_i = 0;
-	while (lista != NULL && curr_i + lista->size <= index) {
-		curr_i += lista->size;
+	size_t ultimo_size = 0;
+	while (lista != NULL){
+		size_t size_real = ultimo_size+lista->size;
+		if (index < size_real){ // index se encuentra dentro del array en el que estamos parados (ni en el anterior, ni en el siguiente)
+			size_t index_local = index - ultimo_size;
+			uint32_t elem_actual = lista->array[index_local];
+			lista->array[index_local] = 0; // limpio el elemento
+			lista->sum = lista->sum - elem_actual;// actualizo la suma
+			return; // cortamos para no seguir recorriendo las listas
+		}
+		ultimo_size = size_real;
 		lista = lista->next;
 	}
-	if (lista == NULL) {
-		return;
-	}
-	index -= curr_i;
-	lista->sum -= lista->array[index];
-	lista->array[index] = 0;
+	return;
 }
 
 /**
@@ -40,8 +51,12 @@ void marcar_tarea_completada(lista_t* lista, size_t index) {
  * - La longitud de `NULL` es 0
  */
 uint64_t lista_len(lista_t* lista) {
-	/* OPCIONAL: Completar si se usa el esquema recomendado por la cátedra */
-	return 0; // BORRAR
+	uint64_t len = 0;
+	while (lista != NULL){
+		len++;
+		lista = lista->next;
+	}
+	return len;
 }
 
 /**
@@ -51,8 +66,13 @@ uint64_t lista_len(lista_t* lista) {
  * - Un array de tamaño 0 tiene 0 ceros.
  */
 uint64_t tareas_completadas(uint32_t* array, size_t size) {
-	/* OPCIONAL: Completar si se usa el esquema recomendado por la cátedra */
-	return 0; // BORRAR
+	uint64_t contador = 0;
+	for (size_t i = 0; i < size; i++){
+		if (array[i] == 0){
+			contador++;
+		}
+	}
+	return contador;
 }
 
 /**
