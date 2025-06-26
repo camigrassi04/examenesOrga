@@ -1,243 +1,257 @@
-A) Lo primero que voy a hacer es modificar el struct `sched_entry_t` en `sched.c` para informar si la tarea esta esperando el lock. Cuando agregamos una tarea al scheduler la vamos a agregar con ese atributo nuevo en 0. 
-
+Para definir las syscalls `lock` y `release` debemos agregar dos nuevas entradas a la idt.
+Para eso, definimos en `idt.c`:
 ```c
-typedef struct {
-  int16_t selector;
-  task_state_t state;
-  int8_t wants_lock;
-} sched_entry_t;
+void idt_init(){
+    ...
+    IDT_ENTRY3(80);
+    IDT_ENTRY3(81); 
+}
 ```
-
-Para agregar las dos syscalls nuevas vamos a definir dos interrupciones nuevas en `idt_init()`.
-
-Entonces en `idt_init()` agregamos: 
-
-```c
-IDT_ENTRY3(80);
-IDT_ENTRY3(81);
-```
-
-Como las syscalls suelen definirse a partir del numero de interrupcion 80 vamos a definir lock como la 80 y release como la 81.
-
-Para que puedan ser llamadas desde las tareas ambas van a ser `IDT_ENTRY3`. Tambien en `isr.h` hay que agregar:
-
+Serán `IDT_ENTRY3` ya que tienen que poder ser llamadas desde nivel de usuario. 
+Luego, declaramos en `isr.h`:
 ```h
 void _isr80();
 void _isr81();
 ```
 
-La consigna dice que ambas syscalls reciben como parametro la direccion virtual de la página compartida. Como la consigna no especifica como recibe ese dato la syscall __asumo que lo va a recibir en el registro ecx de la tarea que llamo a la syscall__.
+Ahora implementaremos las rutinas de atención en `isr.asm`:
+*Asumo, tanto para `lock` como para `release`, que la dirección virtual de la página compartida viene en edi*
 
-Ahora defino en `isr.asm` la rutina de atencion de lock:
-
-```asm
+```nasm
 global _isr80
 _isr80:
     pushad
-    call esta_disponible_el_lock ; Devuelve 1 si nadie esta usando el lock o si el que lo usa es la tarea actual. Si el que lo usa es la tarea actual tambien se va a volver a mapear (preguntar lo de volver a mapear)
-    cmp ax 0
-    je .pausar_tarea
-    ; Si estamos aca es porque se puede usar el lock.
 
-    str ax
-    push ax
-    call obtener_ecx ; Obtengo el valor de la direccion virtual que se quiere acceder
-    add esp, 2
+    str cx ; obtengo el selector de la tarea actual
+    push cx ; lo paso como parámetro
+    push edi ; paso como parámetro la página compartida
 
-    push eax
-    call get_lock
-    add esp, 4
-    jmp fin
+    call puede_acceder_a_memoria_compartida ; devuelve 1 si puede, 0 si no (y de paso marca que quiere el lock)
 
-    .pausar_tarea:
-    ; Si estamos aca es porque el lock ya esta en uso por otra tarea, asi que tenemos que pausar la tarea, pedirle al scheduler la siguiente tarea y saltar a esa tarea
-    call pausar_tarea_actual
+    add esp, 6 ; restauro tope de la pila 
+
+    cmp ax, 1
+    je .get_lock
+
+    ; si estamos acá, es que debemos pasar a la siguiente tarea
     call sched_next_task
-    cmp ax, 0
-    je .fin
-
-    str bx
-    cmp ax, bx
-    je .fin
-
     mov word [sched_task_selector], ax
-    jmp far [sched_task_offset] 
-    ; Si estamos aca es porque esta disponible el lock y es nuestro turno de agarrarlo. 
-    str ax
-    push ax
-    call obtener_ecx ; Obtengo el valor de la direccion virtual que se quiere acceder
-    add esp, 2
-
-    push eax
+    jmp far [sched_task_offset]
+    
+    .get_lock:
+    push edi
     call get_lock
     add esp, 4
 
     .fin:
-        popad
-        iret
-```
-
-Y defino las funciones auxiliares en `sched.c`:
-
-```c
-
-int8_t esta_disponible_el_lock(){
-    return (task_with_lock == -1 || task_with_lock == current_task);
-}
-
-void pausar_tarea_actual(){
-    sched_tasks[current_task].wants_lock = 1;
-}
-
-```
-
-Y en `tss.c` agrego la funcion:
-```c
-pd_entry_t* obtener_ecx(uint16_t segsel) {
-    uint16_t idx = segsel >> 3;
-    tss_t* tss_task = (tss_t*)((gdt[idx].base_15_0) | (gdt[idx].base_23_16 << 16) | (gdt[idx].base_31_24 << 24));
-    uint32_t* pila = tss_task->esp;
-    uint32_t ecx = pila[6];
-    return ecx;
-}
-```
-
-Tambien habria que modificar el codigo de `sched_next_task` para que tenga en cuenta que no puede ejecutar tareas que quieren acceder al lock hasta que este no este disponible. 
-
-```c
-uint16_t sched_next_task(void) {
-  // Buscamos la próxima tarea viva (comenzando en la actual)
-  int8_t i;
-  for (i = (current_task + 1); (i % MAX_TASKS) != current_task; i++) {
-    if(task_with_lock == -1){
-        // Si el lock esta disponible con que sea runnable se puede ejecutar
-        if (sched_tasks[i % MAX_TASKS].state == TASK_RUNNABLE) {
-            break;
-        }
-    }
-    else{
-        // Si el lock no esta disponible solo se pueden acceder a las tareas que no lo solicitaron
-        if (sched_tasks[i % MAX_TASKS].state == TASK_RUNNABLE && sched_tasks[i % MAX_TASKS].wants_lock == 0) {
-            break;
-        }
-    }
-  }
-
-  // Ajustamos i para que esté entre 0 y MAX_TASKS-1
-  i = i % MAX_TASKS;
-
-  // Si la tarea que encontramos es ejecutable entonces vamos a correrla.
-  if (sched_tasks[i].state == TASK_RUNNABLE) {
-    current_task = i;
-    return sched_tasks[i].selector;
-  }
-
-  // En el peor de los casos no hay ninguna tarea viva. Usemos la idle como
-  // selector.
-  return GDT_IDX_TASK_IDLE << 3;
-}
-```
-La syscall release tambien va a recibir por ecx la direccion virtual.
-
-No esta muy clara la consigna en que pasa en casos que esa direccion virtual no es la direccion virtual real de la pagina compartida. Lo que voy a hacer es simplemente desmapear la pagina que me pasan por parametro y luego modificar la variable global indicando que esta disponible el lock. 
-
-Ahora defino la rutina de atencion para release en `isr.asm`:
-
-```asm
-global _isr80
-_isr80:
-    pushad
-    str ax
-    push ax
-    call obtener_ecx ; Obtengo el valor de la direccion virtual que se quiere desmapear
-    add esp, 2
-    mov ecx, cr3
-    push eax ; Pusheo la direccion virtual a desmapear
-    push ecx ; Pusheo el cr3
-    call mmu_unmap_page 
-    add esp, 8
-    call liberar_lock
     popad
     iret
 ```
 
-Y en `sched.c` defino la funcion `liberar_lock`:
+Antes de pasar a las funciones definidas en el scheduler, amplío la información que tiene de cada tarea:
+```c
+typedef struct {
+  int16_t selector;
+  task_state_t state;
+  uint8_t wants_lock;
+} sched_entry_t;
+```
+Al agregar una nueva tarea, `wants_lock` se inicializa siempre en 0.
+
+Defino la función auxiliar:
+```c
+uint16_t puede_acceder_a_memoria_compartida(vaddr_t shared_page, uint16_t selector){
+    if (task_with_lock != current_task() || task_with_lock != -1){
+        // si el lock lo tiene una tarea distinta a la actual y marca que quiere el lock
+        sched_tasks[current_task].wants_lock = 1;
+        return 0;
+    }
+    // si la tarea que tiene el lock es la actual, o el lock está libre, es válido
+    return 1;
+}
+```
+> **IMPORTANTE:** Con la implementación que tenemos ahora, una tarea que quiere el lock al ser retomada podría tomarlo, ya que no se hace nunca el chequeo de si el lock está libre.
+
+Entonces, podríamos modificar el `sched_next_task` para que evite esta situación, haciendo que nunca tome una tarea que quiere el lock mientras el lock no está disponible (*no tiene sentido que elija a una tarea que quiere el lock, porque solo va a buscar el lock y hasta que no esté disponible la tarea no puede hacer nada más que esperarlo*).
+
+*Es un asquete este código pero básicamente chequea si el lock está libre: si está libre, actúa como un scheduler común y corriente, si no, elige una tarea que no quiere el lock.*
 
 ```c
-void liberar_lock(){
-    sched_tasks[i].wants_lock = 0;
-    task_with_lock = -1;
+uint16_t sched_next_task(void) {
+    if (task_with_lock == -1){
+        // Buscamos la próxima tarea viva (comenzando en la actual)
+        int8_t i;
+        for (i = (current_task + 1); (i % MAX_TASKS) != current_task; i++) {
+            // Si esta tarea está disponible la ejecutamos
+            if (sched_tasks[i % MAX_TASKS].state == TASK_RUNNABLE) {
+            break;
+            }
+        }
+
+        // Ajustamos i para que esté entre 0 y MAX_TASKS-1
+        i = i % MAX_TASKS;
+
+        // Si la tarea que encontramos es ejecutable entonces vamos a correrla.
+        if (sched_tasks[i].state == TASK_RUNNABLE) {
+            current_task = i;
+            return sched_tasks[i].selector;
+        }
+
+        // En el peor de los casos no hay ninguna tarea viva. Usemos la idle como
+        // selector.
+        return GDT_IDX_TASK_IDLE << 3;
+    } else {
+        // Buscamos la próxima tarea viva y que no quiera el lock(comenzando en la actual)
+        int8_t i;
+        for (i = (current_task + 1); (i % MAX_TASKS) != current_task; i++) {
+            // Si esta tarea está disponible la ejecutamos
+            if (sched_tasks[i % MAX_TASKS].state == TASK_RUNNABLE && sched_tasks[i % MAX_TASKS].wants_lock == 0) {
+            break;
+            }
+        }
+
+        // Ajustamos i para que esté entre 0 y MAX_TASKS-1
+        i = i % MAX_TASKS;
+
+        // Si la tarea que encontramos es ejecutable entonces vamos a correrla.
+        if (sched_tasks[i].state == TASK_RUNNABLE && sched_tasks[i].wants_lock == 0) {
+            current_task = i;
+            return sched_tasks[i].selector;
+        }
+
+        // En el peor de los casos no hay ninguna tarea viva. Usemos la idle como
+        // selector.
+        return GDT_IDX_TASK_IDLE << 3;
+    }
 }
 ```
 
-Para hacer que la tarea pueda leer si no hay ninguna tarea con lock lo que va a tener que ser modificado es la interrupcion de la page fault. 
 
-Cuando se produce una page fault en cr2 se guarda la direccion virtual a la que se trato de acceder que produjo el fault, y se pushea un codigo de error al tope de la pila. 
+```nasm
+global _isr81
+_isr81:
+    pushad
 
-Si el codigo de error tiene el segundo bit en 0 es porque se trato de leer. 
+    push edi
+    call free_lock
+    add esp, 4
 
-Va a quedar indefinido el comportamiento si tratan de escribir, va a ir directo al final, lo mismo si trata de leer y el lock esta ocupado. Ya que la consigna no dice nada y el ultimo punto habla de que pasa si la tarea lo quiere escribir. 
+    popad
+    iret
+```
+Y defino la función `free_lock`
+```c
+void free_lock(vaddr_t shared_page){
+    task_with_lock = -1;
+    sched_tasks[current_task].wants_lock = 0;
+}
+```
+Nos piden, además, que si una tarea quiere leer la página compartida y el lock no está activo, que pueda hacerlo sin tener que pedir el lock. 
+- Si es una lectura y nadie tiene el lock, permitimos
+- Si es escritura o lectura y alguien tiene el lock, no lo permitimos. 
 
-```asm
-;; Rutina de atención de Page Fault
-;; -------------------------------------------------------------------------- ;;
+Modificamos entonces la rutina de excepción de Page Fault.
+```nasm
 global _isr14
-
 _isr14:
-	; Estamos en un page fault.
-	pushad 
-    mov edi, cr2 ; En cr2 por convencion esta la direccion lineal que produjo el fault
-    pop eax ; Desapilamos de la pila el codigo de error 
-    ; Le sacamos el offset a la direccion virtual que se trato de acceder para solo comparar la base de la pagina
-    shr edi, 12
+    pushad
+    mov edi, cr2             ; Dirección virtual que causó el page fault
+    pop eax                  ; Código de error (lo pushea la CPU antes de saltar a la ISR)
+
+    shr edi, 12              ; Redondeo a base de página
     shl edi, 12
+
     cmp edi, TASK_LOCKABLE_PAGE_VIRT
-    jne .normal
-    ; Si estamos aca es porque se quiso leer o escribir en la pagina 
-    ; Movemos eax para que quede solamente el dato del bit write
-    and eax, 2
-    cmp eax, 1 ; Si se quiso escribir vamos al final
-    ; Si estamos aca es porque se quizo leer. 
+    jne .normal              ; Si no es la página compartida, salgo por la rutina normal
+
+    ; Llegamos acá => hubo acceso a la página compartida
+
+    and eax, 2               ; Bit 1 del código de error indica si fue escritura (1) o lectura (0)
+    cmp eax, 1
+    je .fin                  ; Si fue escritura, NO hacemos nada
+
+    ; Si fue lectura, verifico si el lock está libre
     call lock_disponible
     cmp ax, 0
-    je .fin
-    ; Si estamos aca es porque el lock esta disponible.
+    je .fin                  ; Si no está disponible, no dejo pasar
+
+    ; Si está disponible el lock, mapeo la página como solo lectura
     mov eax, cr3
     mov ecx, [TASK_LOCKABLE_PAGE_PHY]
     mov edi, [TASK_LOCKABLE_PAGE_VIRT]
     mov edx, [READ_ONLY_USER_ATTRIBUTES]
     push edx
     push edi
-    push ecx 
+    push ecx
     push eax
     call mmu_map_page
-    add esp, 16 ; Desapilo
+    add esp, 16
     jmp .fin
-    .normal: 
-        push edi ; Pusheamos la direccion lineal donde se produjo la excepcion
-        call page_fault_handler
-        add esp, 4
-        cmp al, 1
-        je .fin
-    .ring0_exception:
-        call kernel_exception
-        jmp $
-    .fin:
-      popad
-      add esp, 4 ; error code 
-      iret
+
+.normal:
+    ; Para cualquier otro page fault, sigo con el handler original
+    push edi
+    call page_fault_handler
+    add esp, 4
+    cmp al, 1
+    je .fin
+
+.ring0_exception:
+    call kernel_exception
+    jmp $
+
+.fin:
+    popad
+    add esp, 4               ; Código de error
+    iret
 ```
 
-Y agregamos la funcion `lock_disponible` en `sched.c`: 
+Explicación por partes:
 
-```c
-int8_t lock_disponible(){
-    return task_with_lock == -1;
-}
+*Leemos la dirección que provocó el page fault (cr2) y le sacamos el offset, para conseguir solo la base de la página. la idea es poder compararla con TASK_LOCKABLE_PAGE_VIRT, que es la dirección virtual compartida*
+```nasm
+mov edi, cr2
+shr edi, 12
+shl edi, 12
 ```
 
-B) Si dejan de existir las syscalls habria que trabajar sobre la interrupcion por page fault y el scheduler. 
+*Si no es la página compartida, salta a .normal*. Es decir, trataremos con un page fault normal (ya que no es un acceso que nos interesa en el contexto de este ejercicio)
 
-Para que la tarea solicite el lock directamente escribiendo/ leyendo en memoria habria que extraer la gran mayoria del codigo de la syscall y pegarlo en la rutina del pagefault si se quizo escribir en la compartida. 
+*Si es página compartida, chequeamos si fue de escritura:*
+```nasm
+pop eax        ; error code
+and eax, 2     ; Bit de escritura
+cmp eax, 1
+```
+*Si es de escritura, salta a .fin (se trata como error). Si es de lectura, seguimos*
 
-Para que el lock se le saque a la tarea despues de 5 desalojos lo que tendria que ver es primero agregar una variable global que se llame cantidad_desalojos_tarea_con_lock que empieza en 0 y que cada vez que en next_task se desaloja a la tarea con el lock se le suma en 1 esa variable. Una vez que llega a 5 le sacamos el lock. Cuando a una nueva tarea le damos el lock le volvemos a poner 0 a esta variable. 
+*Chequeamos si hay alguien con el lock*
+```nasm
+call lock_disponible
+cmp ax, 0
+je .fin
+```
+*Si está disponible, haremos un mapeo `readonly` para esa tarea*. 
+
+*Mapeamos la página en modo lectura para usuario:*
+```nasm
+mov eax, cr3
+mov ecx, [TASK_LOCKABLE_PAGE_PHY]
+mov edi, [TASK_LOCKABLE_PAGE_VIRT]
+mov edx, [READ_ONLY_USER_ATTRIBUTES]
+push edx
+push edi
+push ecx 
+push eax
+call mmu_map_page
+add esp, 16
+```
+
+Con esto, entonces, permitimos que **todas las tareas puedan leer la página compartida, sin necesidad de pedir el lock, siempre y cuando este esté libre**. 
+---
+
+Notas: 
+Notar que en este inciso a), una tarea podría conseguir el lock o bien la primera vez que usa get_lock o bien porque quería el lock y fue esperando hasta que fue liberado, de manera tal que luego del jmp far, cuando se retoma, es correcto que pida el lock de vuelta. 
+
+---
+b) 
