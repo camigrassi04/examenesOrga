@@ -254,4 +254,22 @@ Notas:
 Notar que en este inciso a), una tarea podría conseguir el lock o bien la primera vez que usa get_lock o bien porque quería el lock y fue esperando hasta que fue liberado, de manera tal que luego del jmp far, cuando se retoma, es correcto que pida el lock de vuelta. 
 
 ---
-b) 
+b) Nos piden que:
+- si una tarea quiere acceder a memoria compartida y no posee el lock, debe comportarse como si la tarea lo hubiera solicitado
+- el lock adquirido se liberará automáticamente luego de 5 desalojos de la tarea que lo obtuvo
+
+> Quieren que la tarea no tenga que llamar a la syscall. Es decir, que si escribe sin tener el lock, el kernel automáticamente le dé el lock (como si hubiera hecho la syscall), de manera transparente para el usuario.
+>
+> Y que, luego de 5 desalojos (5 veces que el scheduler le quite la CPU), se libera el lock automáticamente.
+
+Con el punto anterior (*page_fault*) ya atendemos los accesos inválidos de escritura/lectura a la página compartida. 
+
+- Si fue una escritura sin lock, reutilizamos la lógica de `get_lock`, pero lo hacemos mediante la rutina de `page fault`. Es decir, va a pasar que el usuario accede, ocurre un page_fault, el kernel automáticamente le da el lock y remapea, y la instrucción continúa.
+
+Además, necesitaremos **contar cuántas veces se desaloja la tarea con lock**. Por lo que declaramos una variable global, por ejemplo:
+```c
+int desalojos_tarea_con_lock = 0;
+```
+Y cada vez que la tarea que tiene el lock deja de ser la actual, sumamos 1 a esa variable. 
+
+Cuando otra tarea recibe el lock, seteamos esa variable en 0. 
