@@ -1,52 +1,65 @@
-1) Para agregar la dos syscall nueva vamos a definir una interrupcion nueva en la idt modificando `idt_init()`.
+*Nos piden: ampliar el sistema para que una tarea pueda modificar el valor del registro `edx` de la tarea próxima*.
 
-Como las syscalls suelen definirse a partir del numero de interrupcion 80 va a ser la numero 80.
+1. 
+Primero, debemos definir la syscall.
 
-Como la interrupcion tiene que poder ser llamada desde el codigo de las tareas nivel 3 vamos a definirla como `IDT_ENTRY3`
-
-Entonces en idt_init() agregamos:
-
+Para eso, agregamos una entrada a la IDT de la siguiente manera:
 ```c
-IDT_ENTRY3(80);
+void idt_init(){
+    ...
+    IDT_ENTRY3(80);
+}
 ```
-Tambien en `isr.h` hay que agregar:
-
+Y luego la declaramos en `isr.h`:
 ```h
 void _isr80();
 ```
 
-La syscall va a recibir el valor a ser modificado en el mismo registro edx. 
+Definimos el número 80 como número de la syscall ya que es un número mayor a 32 (menores a 32 son los reservados por Intel) y no interfiere con los de hardware. 
 
-Voy a agregar dos variables globales para el kernel dentro de `sched.c` una se va a llamar `hay_que_modificar_edx` que va a ser un booleano que indica si hay que modificar el edx de la tarea proxima a ejecutar. Y otra que se llama `valor_nuevo_edx` que va a contener efectivamente el valor a poner en el edx de la tarea que devolvemos. 
+Asimismo, es una `IDT_ENTRY3` ya que debe poder ser llamada por cualquier tarea de nivel 3. 
 
-Para eso en `sched.c` agrego: 
+2. 
+Asumo que el parámetro se le pasa a la syscall por el registro `edi`. 
 
-```c
-static paddr_t next_free_kernel_page = 0x100000;
-static paddr_t next_free_user_page = 0x400000;
-
-uint8_t hay_que_modificar_edx = 0;
-uint32_t valor_nuevo_edx = 0;
-```
-
-2) El codigo de la interrupcion va a ser: 
-
-```asm
+```nasm
 global _isr80
 _isr80:
     pushad
-    mov [hay_que_modificar_edx], 1
-    mov [valor_nuevo_edx], edx
-    popad 
+
+    push edi
+    call modify_next_task_edx ; llamo al handler en C
+    add esp, 4
+
+    popad
     iret
 ```
-3) El codigo nuevo de la rutina de atencion del reloj va a ser: 
 
-```asm
-;; Rutina de atención del RELOJ
-;; -------------------------------------------------------------------------- ;;
-global _isr32
+Mi idea de implementación es tener una variable global que indique el valor al que tiene que modificarse `edx` y que luego la interrupción de clock pueda acceder a ese valor para encargarse de modificarlo.
 
+Entonces, agregamos variables globales en `sched.c`:
+```c
+uint32_t next_edx_value = 0;
+bool modificar_edx_value = false;
+```
+En `next_edx_value` guardamos el valor al que tendremos que modificar el edx, no importa el valor con el que se inicializa. Por otro lado, `modificar_edx_value` es una flag que básicamente determina si la otra variable es válida o no. Se inicializa en false ya que, hasta que no haya alguna tarea que quiera modificar el valor de edx, no nos interesa la variable global y deberíamos ignorarla. 
+
+```c
+void modify_next_task_edx(uint32_t edx_value){
+    next_edx_value = edx_value;
+    modificar_edx_value = true;
+}
+```
+
+3. Modificamos la rutina de interrupción de reloj de manera tal que se fije en esa variable global. 
+Para ello, debemos declarar al inicio de `isr.asm` la variable como extern para que pueda accederla:
+```nasm
+extern next_edx_value
+extern modificar_edx_value
+```
+
+Luego, modificamos la rutina:
+```nasm
 _isr32:
     pushad
     ; 1. Le decimos al PIC que vamos a atender la interrupción
@@ -54,17 +67,6 @@ _isr32:
     call next_clock
     ; 2. Realizamos el cambio de tareas en caso de ser necesario
     call sched_next_task
-    cmp [hay_que_modificar_edx], 0
-    je .rutina_normal
-    ; Si estamos aca es porque hay que modificar el edx de la proxima tarea a ejecutarse
-    push ax 
-    push DWORD [valor_nuevo_edx]
-    call modificar_edx
-    add esp, 4
-    pop ax ; Restauro el selector
-    mov [hay_que_modificar_edx], 0 ; Seteo la flag en 0 para que en el proximo clock no se vuelva a pisar
-    mov [valor_nuevo_edx], 0
-    .rutina_normal:
     cmp ax, 0
     je .fin
 
@@ -72,8 +74,13 @@ _isr32:
     cmp ax, bx
     je .fin
 
+    ; función que modifica el registro edx directamente en la tss de la próxima tarea
+    
+    push ax ; paso como parámetro el selector de la tarea actual
+    call modify_edx
+    pop ax
     mov word [sched_task_selector], ax
-    jmp far [sched_task_offset] 
+    jmp far [sched_task_offset]
 
     .fin:
     ; 3. Actualizamos las estructuras compartidas ante el tick del reloj
@@ -84,13 +91,15 @@ _isr32:
     iret
 ```
 
-Y agrego la funcion `modificar_edx` en `tss.c` importando la gdt: 
-
+En `sched.c` defino la función:
 ```c
-void modificar_edx(uint32_t valor_a_poner_en_edx,uint16_t segsel) {
-    uint16_t idx = segsel >> 3;
-    tss_t* tss_task = (tss_t*)((gdt[idx].base_15_0) | (gdt[idx].base_23_16 << 16) | (gdt[idx].base_31_24 << 24));
-    uint32_t* pila = tss_task->esp;
-    pila[5] = valor_a_poner_en_edx;
+void modify_edx(uint16_t segsel){
+    if (modificar_edx_value == true){
+        tss_t* tss_base = gdt[selector >> 3].base;
+        tss_base.edx = next_edx_value;
+        modificar_edx_value = false;
+    }
 }
 ```
+
+¿Por qué modificando la TSS de la tarea a la que vamos a saltar nos aseguramos que el edx quede modificado? Porque cuando hacemos el jmp far, la CPU automáticamente carga el contexto de la TSS en los registros del CPU, incluyendo los registros generales. Entonces, cuando empiece a ejecutar la tarea, tendrá ese valor modificado cargado en `edx`. 
