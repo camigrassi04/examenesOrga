@@ -1,71 +1,100 @@
-A) Para que el servicio pueda ser invocado hay que definir la syscall en la idt. Para eso En la funcion `idt_init` agregamos `IDT_ENTRY3(100)` para definir la interrupcion en la idt. Como queremos que sea llamada desde las tareas va a ser de nivel 3. 
+# ESTO ESTÁ MAL
+Nos piden definir una *syscall*.
+Para eso, debemos agregar una entrada a la IDT. 
+En `idt.c`:
+```C
+void idt_init(){
+    ...
+    IDT_ENTRY3(100);
+}
+```
+Será una entrada de tipo 3 ya que cualquier tarea de nivel de usuario debe poder llamarla. 
 
-Luego en `isr.h` agregamos `void _isr100();`. 
+Luego, la declaramos en `idt.h`:
+```h
+void _isr100();
+```
 
-La convencion que voy a usar para recibir los parametros desde la syscall va a ser que en `eax` esta la direccion virtual, en `edx` la direccion fisica y en `di` el selector de segmento que apunta al descriptor de tss en la gdt. 
+b) Ahora, escribimos la rutina de atención de interrupción en `isr.asm`:
 
-B) Para que la tarea actual retome su ejecucion en la direccion pasada lo que voy a hacer es modificar el eip que se guarda en la pila de la interrupcion para que apunte a donde queremos que siga el codigo, para que cuando salgamos de la interrupcion cuando se le ponga el valor del iret al esi sea el valor modificado. 
-
-Y para la tarea que nos llama con su selector vamos a acceder a su tss y modificar el eip de la pila de la tss. 
-
-Pero antes de eso vamos a mapear la pagina virtual y fisica en el directorio actual y en el de la tarea que nos llama. 
-
-La rutina de atencion va a ser: 
-
-```asm
-global _isr32
-_isr32:
+*Asumo que los parámetros le llegan de la siguiente forma:*
+*- edi → virt*
+*- esi → phy*
+*- dx → task_sel*
+```nasm
+global _isr100
+_isr100:
     pushad
-    mov [esp + 0x20], eax ; Con esto hago que el eip de la pila apunte a la direccion virtual
-    ; Aunque todavia esa direccion virtual no esta mapeada despues la vamos a mapear antes que usarla
-    mov edi, [esp + 0x2C] ; Pongo en edi el esp3 de la pila
-    and edi, 0xFFFFF000
-    add edi, 0x1000
-    mov [esp + 0x2c], edi ; Actualizo el esp3 de la pila para reiniciarla cuando salgamos de la interrupcion 
-    push eax
-    push edx
-    push di
-    call force_task
-    add esp, 6
-    pop eax
-    popad 
+
+    push edi
+    push esi
+    push dx
+    push esp ; le pasamos el esp de nivel 0 (ya que el de la tss no está actualizado)
+    call XXXX ; handler en C
+    add esp, 14 ; restauro stack
+
+    popad
     iret
 ```
 
-La implementacion de `force_task` va a ser: 
+```C
+void XXXX(uint32_t esp, uint16_t task_sel, uint32_t phy, uint32_t virt) {
+    // realizamos los mapeos
+    uint32_t cr3_tarea_actual = rcr3();
+    uint32_t cr3_tarea_parametro = obtener_cr3(task_sel);
+    mmu_map_page(cr3_tarea_actual, virt, phy, MMU_P | MMU_U); // mapeo tarea actual
+    mmu_map_page(cr3_tarea_parametro, virt, phy, MMU_P | MMU_U); // mapeo tarea pasada por parámetro
 
-```c
-void force_task(uint16_t segsel_otra_tarea, vaddr_t vaddr_a_mapear, paddr_t paddr_a_mapear){
-  pd_entry_t* cr3_otra_tarea = obtener_cr3(segsel_otra_tarea);
-
-  mmu_map_page(rcr3(), vaddr_a_mapear, paddr_a_mapear, MMU_P | MMU_U);
-  mmu_map_page(cr3_otra_tarea, vaddr_a_mapear, paddr_a_mapear, MMU_P | MMU_U);
-  
-  uint16_t idx_otra_tarea = segsel_otra_tarea >> 3;
-  tss_t* tss_pointer_otra_tarea = (tss_t*)((gdt[idx].base_15_0) | (gdt[idx].base_23_16 << 16) | (gdt[idx].base_31_24 << 24));
-
-  tss_pointer_otra_tarea->eip = vaddr_a_mapear;
-  tss_pointer_otra_tarea->cs = GDT_CODE_3_SEL;
-  tss_pointer_otra_tarea->ds = GDT_DATA_3_SEL;
-
-  uint32_t* esp3_otra_tarea = tss_pointer_otra_tarea -> esp0 + 44;
-  tss_pointer_otra_tarea->esp = (*esp3_otra_tarea & 0xFFFFF000) + 0x1000;
-
-  tss_pointer_otra_tarea->esp0 = (tss_pointer_otra_tarea->esp0 & 0xFFFFF000) + 0x1000;
-
-  // Como la consigna no pide desmapear no desmapeo
-}
-
-
-pd_entry_t* obtener_cr3(uint16_t segsel) {
-    uint16_t idx = segsel >> 3;
-    tss_t* tss_pointer = (tss_t*)((gdt[idx].base_15_0) | (gdt[idx].base_23_16 << 16) | (gdt[idx].base_31_24 << 24));
-    return tss_pointer->cr3;
-}
-
-void modificar_eip(uint16_t segsel, uint32_t dato){
-  uint16_t idx = segsel >> 3;
-  tss_t* tss_task = (tss_t*)((gdt[idx].base_15_0) | (gdt[idx].base_23_16 << 16) | (gdt[idx].base_31_24 << 24));
-  tss_task->eip = dato;
+    // modificamos campos de la tarea pasada por parámetro para que cuando se ejecute retome en virt
+    modificar_eip_tss(task_sel, virt); // modificamos el valor de eip en la tss para que luego la tarea retome de ahi
+    
+    // modificamos valor del eip en el stack de la tarea para que luego de la interrupción se retome desde virt
+    modificar_eip_pila(esp, virt);
 }
 ```
+
+```C
+uint32_t obtener_cr3(uint16_t task_sel) {
+    tss_t* tss = obtener_tss(task_sel);
+    return tss->cr3; 
+}
+```
+
+```C
+tss_t* obtener_tss(uint16_t task_sel){
+    uint16_t idx = task_sel >> 3;
+    return gdt[idx].base;
+}
+```
+
+```C
+void modificar_eip_tss(uint16_t task_sel, uint32_t virt) {
+    tss_t* tss = obtener_tss(task_sel);
+    tss->eip = virt;
+}
+```
+
+```C
+void modificar_eip_pila(uint32_t esp, uint32_t virt) { 
+    esp[9] = virt; // pila[9] = eip_3
+}
+```
+---
+Conclusiones del ejercicio:
+- *¿cuál es el eip que busca el scheduler para saber la instrucción desde la cual retoma la tarea?* 
+    - Si la tarea no está en ejecución, el eip que nos interesa es el de la tss (ya que es la siguiente instrucción que iba a ejecutarse, pero antes se hizo el jmp far).
+    - Si la tarea está en ejecución, el eip que nos interesa es el que se encuentra en la pila (el que se restaura con iret), ya que es la dirección que se guardó al arrancar la interrupción. 
+
+- El esp de la tss de la tarea actual no va a estar actualizado, por eso tenemos que pasar el esp como parámetro en el handler. 
+
+>⚠️ En la primer versión que hicimos, hacíamos esto:
+> ```C
+> void modificar_eip_tss(uint16_t task_sel, uint32_t virt) {
+>    tss_t* tss = obtener_tss(task_sel);
+>    tss->eip = virt;
+>}
+>```
+>
+> Eso está incompleto, porque sólo estamos cambiando el puntero a la próxima instrucción, pero no estamos teniendo en cuenta que tenemos que resetear las pilas (la base del stack nivel 0 y nivel 3) y los selectores de segmento. 
+
+#### Si quiero cambiar el EIP de una tarea que no está en ejecución, cómo tengo que hacerlo?
