@@ -13,5 +13,14 @@
     
     Qué significa?
 
+## Inspiradas en el ejercicio 2023C1R:
+Resolución: segundo cuatri 2023
 
+[Ejercicio](segundos_parciales/2023C1R/Solucion/ej1.md)
+1) Por qué en el siguiente punto:   
 
+*¿Cómo modificarías el punto anterior para que exit (además de lo que hace normalmente) guarde el ID de quién la llamó en el EAX de próxima tarea a ejecutar? Mostrar código*   
+
+Tiene que modificar el eax desde la pila y no el de la tss? Qué consideraciones/asunciones se hacen? (por ejemplo, que la tarea se ejecutó por lo menos 1 vez)
+
+*Lo que suponemos: Teníamos entendido que modificando el tss, cuando se haga el jmp far, se va a cargar con los últimos valores (es decir, el modificado). Después con el popad se van a pisar los valores y esos van a ser los que quedan.*
