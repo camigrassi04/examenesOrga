@@ -4,6 +4,7 @@
 - [Syscall malloco](#syscall-malloco)
 - [Mecanismo lazy allocation](#mecanismo-lazy-allocation)
 - [Syscall chau](#syscall-chau)
+- [CORRECCIONES](#correcciones)
 
 # Resumen consigna:
 Sistema donde:
@@ -202,7 +203,6 @@ int8_t page_fault_handler(vaddr_t virt) {
     }
     // En caso de que si, mapear la pagina
     uint32_t cr3 = rcr3();
-    // TE QUEDASTE ACÁ, TENÉS QUE VER COMO MAPEAR LAS PAGINAS SEGUN LOS BYTES RESERVADOS, CADA 4096 BYTES ES UNA PÁGINA
     uint32_t bytes_reservados = calcular_bytes_reservados(virt);
     uint32_t task_code_pages = bytes_reservados/4096; 
     for (uint32_t i = 0; i < task_code_pages; i++){ // mapeamos todas las páginas correspondientes
@@ -279,7 +279,9 @@ _isr81:
 void chau(vaddr_t dir_virt) {
     for (uint32_t i = 0; i <= idx_ult_reserva; i++){
         if (arr[i].vaddr_base == dir_virt) {
-            arr[i].en_uso = 0;
+            if (arr[i].id_tarea_reserva == current_task){
+                arr[i].en_uso = 0;
+            }
         }
     }
 }
@@ -355,3 +357,12 @@ uint32_t obtener_cr3(int8_t id_tarea) {
     return tss->cr3;
 }
 ```
+---
+# Correcciones:
+## 1. Syscall `malloco` tiene que devolver algo a la tarea
+Es decir, tendríamos que pisar el valor de eax desde la pila, de manera tal que cuando se haga `popad` se pise el valor del registro y le quede guardado a la tarea el puntero a la dirección reservada.
+## 2. Cuando nos piden definir una tarea de nivel 0, hay que definirla posta
+Es decir, tendríamos que crear una entrada en la GDT para su TSS, darle sus páginas correspondientes...   
+Es importante que la tarea sea un loop infinito para que corra continuamente en los sucesivos turnos. 
+## 3. Zero page funciona solo para direcciones físicas en el área kernel (por identity mapping)
+Entonces para setear en cero una dirección física del área libre de tareas, primero hay que mapearla a una dirección virtual libre del área kernel (está definido en el tp con un define) y luego usar `kmemset`. 
